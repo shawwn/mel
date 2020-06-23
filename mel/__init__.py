@@ -119,6 +119,12 @@ def is_tf_variable(value):
   return False
 
 
+def is_tf_tensor(value):
+  if tensorflow.is_tensor(value):
+    return True
+  return False
+
+
 def is_torch_tensor(value):
   if torch is None:
     return False
@@ -150,7 +156,7 @@ def val(value, eager=False, session=None, deep=True):
     value = [val(x, eager=eager, session=session, deep=deep) for x in value]
   if deep and pydict(value):
     value = {k: val(v, eager=eager, session=session, deep=deep) for k, v in value.items()}
-  if is_tf_variable(value):
+  if is_tf_variable(value) or is_tf_tensor(value):
     if not eager:
       raise ValueError("val called on tensorflow variable {} but eager is False".format(value))
     # TODO: batch multiple nested reads.
