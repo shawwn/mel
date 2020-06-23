@@ -168,7 +168,7 @@ def sample(tex, uv, method="bilinear", wrap_mode="reflect"):
 
 
 @op_scope
-def resize(img, size, preserve_aspect_ratio=False, method="area", wrap_mode="reflect"):
+def resize(img, size, method="bilinear", wrap_mode="reflect"): #, preserve_aspect_ratio=False):
   assert method in ["nearest", "bilinear", "area"]
   assert wrap_mode in ["clamp", "wrap", "reflect"]
   y, x = tf.meshgrid(
@@ -187,10 +187,12 @@ def resize(img, size, preserve_aspect_ratio=False, method="area", wrap_mode="ref
     #tf.zeros([num_frags], dtype=tf.float32)
     ], axis=1)
 
-  re = lambda out: tf.transpose(tf.reshape(out, [size[1], size[0], 3]), [1,0,2])
+  re = lambda out: tf.transpose(tf.reshape(out, [size[1], size[0], -1]), [1,0,2])
   if method == "nearest" or method == "bilinear":
     return re(sample(img, uv, method=method, wrap_mode=wrap_mode))
 
+  assert method == "area"
+  assert "Resize in area mode not yet working"
   uv_00 = uv
   uv_10 = tf.stack([
     uv_00[:, 0] + 1.0 / size[0],
@@ -232,8 +234,8 @@ if __name__ == "__main__":
   with open(args[0], 'rb') as f:
     img = sess.run(tf.io.decode_image(f.read(), channels=3))
   outfile = args[1]
-  w = 20 if len(args) <= 2 else int(args[2])
-  h = 20 if len(args) <= 3 else int(args[3])
+  w = 128 if len(args) <= 2 else int(args[2])
+  h = 128 if len(args) <= 3 else int(args[3])
   method = "area" if len(args) <= 4 else args[4]
   wrap_mode = "reflect" if len(args) <= 5 else args[5]
   img2 = sess.run(resize(img, [w, h], method=method, wrap_mode=wrap_mode))
