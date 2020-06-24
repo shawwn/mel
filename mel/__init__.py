@@ -13,6 +13,16 @@ except ModuleNotFoundError:
 
 
 def is_lib_type(value, libname):
+  if pylist(value):
+    for x in value:
+      if is_lib_type(x, libname):
+        return True
+    return False
+  if pydict(value):
+    for k, v in value.items():
+      if is_lib_type(v, libname):
+        return True
+    return False
   name = type(value).__module__
   if name == libname:
     return True
@@ -44,7 +54,8 @@ def is_torch_type(value):
 
 
 def is_np_type(value):
-  return type(value).__module__ == 'numpy'
+  return is_lib_type(value, 'numpy')
+  #return type(value).__module__ == 'numpy'
   # for k, v in np.typeDict.items():
   #   if isinstance(value, v):
   #     return True
@@ -72,7 +83,7 @@ def pyatom(value):
 
 
 def pylist(value):
-  return isinstance(value, list)
+  return isinstance(value, list) or isinstance(value, tuple)
 
 
 def pydict(value):
@@ -141,7 +152,53 @@ def is_tf_constant(value):
     return False
 
 
+def thru(*args, **kws):
+  if len(args) > 0:
+    return args[0]
+
+
+def const(value, lib=None, deep=True, axis=0):
+  if isinstance(value, tensorflow.TensorShape):
+    return val(value)
+  if isinstance(value, tensorflow.Dimension):
+    return val(value)
+  if torch:
+    if isinstance(value, torch.Size):
+      return val(value)
+  lib = as_lib(lib, hint=value)
+  #value = val(value, deep=deep)
+  if deep and pydict(value):
+    value = {k: const(v, lib=lib, deep=deep, axis=axis) for k, v in value.items()}
+    return value
+  if pyatom(value):
+    if lib == tensorflow:
+      value = tensorflow.constant(value)
+    elif torch and lib == torch:
+      value = torch.tensor(value)
+    else:
+      assert lib == np
+      value = np.array(value)
+  if deep and pylist(value):
+    value = [const(x, lib=lib, deep=deep) for x in value]
+  if pylist(value) and len(value) > 0:
+    value = stack(value, lib=lib, axis=axis)
+  return value
+
+from pprint import pprint as pp
+
+def stack(value, axis=-1, lib=None):
+  lib = as_lib(lib, hint=value)
+  if not hasattr(lib, 'stack'):
+    raise NotImplementedError
+  if lib == torch:
+    value = torch.stack(value, dim=axis)
+  else:
+    value = lib.stack(value, axis=axis)
+  return value
+
+
 def val(value, eager=False, session=None, deep=True):
+  assert eager in [True, False]
   if isinstance(value, tensorflow.TensorShape):
     value = value.as_list()
   if isinstance(value, tensorflow.Dimension):
@@ -181,16 +238,15 @@ def as_lib(lib=None, hint=None):
       lib = 'tensorflow'
     if lib == 'np':
       lib = 'numpy'
-    if isinstance(lib, str):
-      if lib == 'tensorflow':
-        lib = tensorflow
-      elif lib == 'numpy':
-        lib = np
-      elif lib == 'torch':
-        lib = torch
-      else:
-        lib = importlib.__import__(lib)
-      return lib
+    if lib == 'tensorflow':
+      lib = tensorflow
+    elif lib == 'numpy':
+      lib = np
+    elif lib == 'torch':
+      lib = torch
+    else:
+      lib = importlib.__import__(lib)
+    return lib
   if lib is None:
     if is_tf_type(hint):
       return tensorflow
@@ -202,7 +258,12 @@ def as_lib(lib=None, hint=None):
 
 
 dtype_remap = {
-    'bool': 'b',
+    'bool': 'y',
+
+    'bfloat': 'b16',
+    'bfloat16': 'b16',
+
+    'float16': 'f16',
 
     'f': 'f32',
     'float': 'f32',
@@ -214,7 +275,7 @@ dtype_remap = {
 
     'c': 'f128',
     'complex': 'f128',
-    'complex128': 'f128',
+    'complex64': 'f128',
 
     'byte': 'u8',
     'uint8': 'u8',
@@ -251,10 +312,12 @@ for v in list(dtype_remap.values()):
 
 
 dtype_long = {
-    'b': 'bool',
+    'y': 'bool',
+    'b16': 'bfloat16',
+    'f16': 'float16',
     'f32': 'float32',
     'f64': 'float64',
-    'f128': 'complex',
+    'f128': 'complex64',
     'u8': 'uint8',
     'u16': 'uint16',
     'u32': 'uint32',
@@ -272,6 +335,58 @@ for v in list(dtype_remap.values()):
   assert v in dtype_long
 
 
+dtype_specs = {
+    np.int64: 'i64',
+    np.int32: 'i32',
+    np.int16: 'i16',
+    np.int8: 'i8',
+    np.uint64: 'u64',
+    np.uint32: 'u32',
+    np.uint16: 'u16',
+    np.uint8: 'u8',
+    np.float64: 'f64',
+    np.float32: 'f32',
+    np.complex: 'f128',
+    np.bool_: 'y',
+
+    tensorflow.int64: 'i64',
+    tensorflow.int32: 'i32',
+    tensorflow.int16: 'i16',
+    tensorflow.int8: 'i8',
+    tensorflow.uint64: 'u64',
+    tensorflow.uint32: 'u32',
+    tensorflow.uint16: 'u16',
+    tensorflow.uint8: 'u8',
+    tensorflow.float64: 'f64',
+    tensorflow.float32: 'f32',
+    tensorflow.float16: 'f16',
+    tensorflow.bfloat16: 'b16',
+    tensorflow.complex64: 'f128',
+    tensorflow.bool: 'y',
+
+    torch.int64: 'i64',
+    torch.int32: 'i32',
+    torch.int16: 'i16',
+    torch.int8: 'i8',
+    #torch.uint64: 'u64',
+    #torch.uint32: 'u32',
+    #torch.uint16: 'u16',
+    torch.uint8: 'u8',
+    torch.float64: 'f64',
+    torch.float32: 'f32',
+    torch.complex64: 'f128',
+    torch.bool: 'y',
+}
+
+
+dtype_specs.update({x: x for x in list(set(dtype_remap.values()))})
+
+spec_to_dtype = {
+    'np': {v: k for k, v in dtype_specs.items() if is_np_type(k)},
+    'tf': {v: k for k, v in dtype_specs.items() if is_tf_type(k)},
+    'torch': {v: k for k, v in dtype_specs.items() if is_torch_type(k)},
+}
+
 def as_dtype(value, lib=None, deep=True):
   lib = as_lib(lib, hint=value)
   if isinstance(value, str):
@@ -283,13 +398,175 @@ def as_dtype(value, lib=None, deep=True):
     if not hasattr(lib, value):
       raise ValueError("Library {} does not support dtype {}".format(lib, value))
     value = getattr(lib, value)
-  if hasattr(value, 'dtype'):
-    value = value.dtype
   if deep and pylist(value):
-    value = [as_dtype(x, lib=lib, deep=deep) for x in value]
+    return [as_dtype(x, lib=lib, deep=deep) for x in value]
   if deep and pydict(value):
-    value = {k: as_dtype(v, lib=lib, deep=deep) for k, v in value.items()}
+    return {k: as_dtype(v, lib=lib, deep=deep) for k, v in value.items()}
+  if pyatom(value):
+    value = const(value)
+  if lib == np:
+    value = np.result_type(value).type
+  else:
+    if hasattr(value, 'dtype'):
+      value = value.dtype
   return value
+
+
+def dtype_spec(value, deep=True):
+  if pylist(value):
+    if deep:
+      value = [dtype_spec(x, deep=deep) for x in value]
+    return value
+  if pydict(value):
+    if deep:
+      value = {k: dtype_spec(v, deep=deep) for k, v in value.items()}
+    return value
+  # if pystr(value):
+  #   return value
+  if isinstance(value, np.dtype):
+    value = value.type
+  value = dtype_specs[value]
+  return value
+
+
+_swiz = {
+    'x': 0,
+    'y': 1,
+    'z': 2,
+    'w': 3,
+
+    'u': 0,
+    'v': 1,
+    's': 2,
+    't': 3,
+
+    'r': 0,
+    'g': 1,
+    'b': 2,
+    'a': 3,
+}
+
+
+def component(value, c):
+  if isinstance(c, str):
+    c = _swiz[c]
+  return value[..., c]
+  
+
+# swizzle([1,2,3,4], '.xyzw') => [1,2,3,4]
+# swizzle([1,2,3,4], '.zyzw') => [3,2,3,4]
+# swizzle([1,2,3,4], '.yyy') => [2,2,2]
+def swizzle(value, by=None):
+  value = const(value)
+  if by is None:
+    c = shapeof(value)[-1]
+    assert pynum(c)
+    return [component(value, i) for i in range(c)]
+  if isinstance(by, str):
+    by = by.lstrip('.')
+    return [component(value, c) for c in by]
+  elif pylist(by):
+    return [swizzle(value, by=spec) for spec in by]
+  else:
+    raise NotImplementedError
+    # value = {k: swizzle(v, deep=deep) for k, v in value.items()}
+    # return value
+
+def _pyflat(value):
+  if pylist(value):
+    for x in value:
+      yield from _pyflat(x)
+  elif pydict(value):
+    for k, v in value.items():
+      yield from _pyflat(v)
+  else:
+    yield value
+
+def pyflat(value):
+  return list(_pyflat(value))
+
+import functools
+import operator
+
+def cast(value, dtype=None, lib=None, hint=None):
+  if pylist(value):
+    value = stack(value, axis=-1, lib=lib)
+  lib = as_lib(lib, hint=value)
+  if dtype is None:
+    if hint is None:
+      hint = value
+    dtypes = pyflat(as_dtype(hint, lib=lib, deep=True))
+    if not functools.reduce(operator.eq, dtypes):
+      raise ValueError("dtypes not equal for {}".format(value))
+    dtype = dtypes[0]
+  dtypes = pyflat(as_dtype(dtype, lib=lib, deep=True))
+  if not functools.reduce(operator.eq, dtypes):
+    raise ValueError("dtypes not equal for {}".format(value))
+  dtype = dtypes[0]
+  if lib == np:
+    return np.array(value, dtype=dtype)
+  elif lib == tensorflow:
+    return tensorflow.cast(value, dtype=dtype)
+  else:
+    assert lib == torch
+    return torch.cast(value, dtype=dtype)
+
+
+def shapeof(value):
+  if hasattr(value, 'shape'):
+    value = value.shape
+  if isinstance(value, tensorflow.TensorShape):
+    return val(value)
+  if isinstance(value, tensorflow.Dimension):
+    return val(value)
+  if torch:
+    if isinstance(value, torch.Size):
+      return val(value)
+  if pylist(value):
+    value = [shapeof(x) for x in value]
+  if pydict(value):
+    value = {k: shapeof(v) for k, v in value.items()}
+  return value
+
+
+def fill(shape, value, lib=None):
+  if pylist(value):
+    return stack([fill(shape, c) for c in value], axis=-1, lib=lib)
+  shape = const(shape, lib=lib)
+  value = const(value, lib=lib)
+  if shapeof(value) != []:
+    return stack([fill(shape, c) for c in swizzle(value)])
+  if lib is None:
+    lib = as_lib(None, hint=value)
+    if lib == np:
+      lib = as_lib(None, hint=shape)
+  #assert pylist(shape)
+  if lib == tensorflow:
+    return tensorflow.fill(shape, value)
+  elif lib == np:
+    r = np.zeros(shape)
+    r.fill(value)
+    return r
+  else:
+    assert torch and lib == torch
+    spec = dtype_spec(as_dtype(value))
+    dtype = spec_to_dtype['torch'][spec]
+    r = torch.zeros(shape, dtype=dtype)
+    r.fill_(value)
+    return r
+
+def vec4(value, lib=None):
+  lib = as_lib(lib, hint=value)
+  last = tensorflow.unstack(value, axis=-1)
+  if len(last) == 4:
+    return value
+  rest = []
+  for i in range(len(last)):
+    #rest.append(jk/
+    pass
+  
+  #return val(last.shape)
+  return last
 
 
 from . import tf
