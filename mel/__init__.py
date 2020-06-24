@@ -186,15 +186,70 @@ def const(value, lib=None, deep=True, axis=0):
 
 from pprint import pprint as pp
 
+def ppr(x):
+  pp(x)
+  return x
+
 def stack(value, axis=-1, lib=None):
   lib = as_lib(lib, hint=value)
   if not hasattr(lib, 'stack'):
     raise NotImplementedError
   if lib == torch:
-    value = torch.stack(value, dim=axis)
+    value = torch.stack([const(x, lib=lib) for x in value], dim=axis)
   else:
     value = lib.stack(value, axis=axis)
   return value
+
+
+def arange(a, b, lib=None):
+  lib = as_lib(lib, hint=a)
+  if lib == tensorflow:
+    return tensorflow.range(a, b)
+  if torch and lib == torch:
+    return torch.arange(a, b)
+  assert lib == np
+  return np.arange(a, b)
+
+
+def linspace(a, b, i, lib=None):
+  lib = as_lib(lib, hint=a)
+  return lib.linspace(a, b, i)
+
+
+def meshgrid(*args, lib=None):
+  lib = as_lib(lib, hint=args[0])
+  return lib.meshgrid(*args)
+
+
+def zeros_like(value, lib=None):
+  lib = as_lib(lib, hint=value)
+  return lib.zeros_like(value)
+
+
+def ones_like(value, lib=None):
+  lib = as_lib(lib, hint=value)
+  return lib.ones_like(value)
+
+
+# mel.swizzle(mel.stack([mel.cumsum(v,1-i) for i, v in enumerate(mel.swizzle(mel.fill([8,4], [1.0/4.0, 1.0/8.0])))]))[0]
+
+def lingrid(shape, Ux, Uy, Vx, Vy, lib=None):
+  lib = as_lib(lib, hint=Ax)
+  shape = const(shape, lib=lib)
+  dims = shapeof(shape)
+  pp(dims)
+  assert len(dims) == 1
+  rank = dims[0] - 1
+  Ux = const(Ux, lib=lib)
+  Uy = const(Uy, lib=lib)
+  Vx = const(Vx, lib=lib)
+  Vy = const(Vy, lib=lib)
+  H, W = swizzle(shape)
+  Udx = (Vx - Ux) / W
+  Udy = (Vy - Uy) / H
+  return fill(shape, [ABx, 0.0])
+
+  
 
 
 def val(value, eager=False, session=None, deep=True):
@@ -447,11 +502,34 @@ _swiz = {
 }
 
 
-def component(value, c):
+def index(c):
   if isinstance(c, str):
     c = _swiz[c]
-  return value[..., c]
+  return c
+
+
+def spec(value):
+  return dtype_spec(as_dtype(value))
+
+
+def component(value, c):
+  if c == '0':
+    return zeros_like(value[..., 0])
+  if c in list('0123456789ABCDEF'):
+    #percent = (ord(c) - ord('0')) / 10.0
+    percent = int(c, 16) / 0xF
+    if spec(value) in ['u8', 'i64']:
+      percent *= 0xFF
+      percent = int(percent)
+    return ones_like(value[..., 0]) * percent
+  i = index(c)
+  return value[..., i]
   
+
+def channels(value):
+  value = const(value)
+  c = shapeof(value)[-1]
+  return c
 
 # swizzle([1,2,3,4], '.xyzw') => [1,2,3,4]
 # swizzle([1,2,3,4], '.zyzw') => [3,2,3,4]
@@ -463,7 +541,6 @@ def swizzle(value, by=None):
     assert pynum(c)
     return [component(value, i) for i in range(c)]
   if isinstance(by, str):
-    by = by.lstrip('.')
     return [component(value, c) for c in by]
   elif pylist(by):
     return [swizzle(value, by=spec) for spec in by]
@@ -471,6 +548,28 @@ def swizzle(value, by=None):
     raise NotImplementedError
     # value = {k: swizzle(v, deep=deep) for k, v in value.items()}
     # return value
+
+
+def swizzled(value, by, lib=None):
+  value = swizzle(value, by=by)
+  value = stack(value, axis=-1, lib=lib)
+  return value
+
+
+def cumsum(value, by=None, lib=None):
+  if by is None:
+    by = 'xy'
+  if isinstance(by, str):
+    by = [index(c) for c in by]
+  if not pylist(by):
+    by = [by]
+  lib = as_lib(lib, hint=value)
+  value = const(value, lib=lib)
+  for i in by:
+    value = lib.cumsum(value, i)
+  return value
+
+
 
 def _pyflat(value):
   if pylist(value):
@@ -488,7 +587,14 @@ def pyflat(value):
 import functools
 import operator
 
+import PIL.Image
+
 def cast(value, dtype=None, lib=None, hint=None):
+  if dtype == 'img':
+    if spec(value)[0] == 'f':
+      value *= 255.0
+    value = cast(value, dtype='u8', lib=np)
+    return PIL.Image.fromarray(value)
   if pylist(value):
     value = stack(value, axis=-1, lib=lib)
   lib = as_lib(lib, hint=value)
@@ -504,7 +610,7 @@ def cast(value, dtype=None, lib=None, hint=None):
     raise ValueError("dtypes not equal for {}".format(value))
   dtype = dtypes[0]
   if lib == np:
-    return np.array(value, dtype=dtype)
+    return np.array(value).astype(dtype)
   elif lib == tensorflow:
     return tensorflow.cast(value, dtype=dtype)
   else:
@@ -532,19 +638,20 @@ def shapeof(value):
 def fill(shape, value, lib=None):
   if pylist(value):
     return stack([fill(shape, c) for c in value], axis=-1, lib=lib)
-  shape = const(shape, lib=lib)
   value = const(value, lib=lib)
   if shapeof(value) != []:
     return stack([fill(shape, c) for c in swizzle(value)])
-  if lib is None:
-    lib = as_lib(None, hint=value)
+  if lib is None or pystr(lib):
+    lib1 = lib
+    lib = as_lib(lib1, hint=value)
     if lib == np:
-      lib = as_lib(None, hint=shape)
+      lib = as_lib(lib1, hint=shape)
   #assert pylist(shape)
   if lib == tensorflow:
+    shape = const(shape, lib=lib)
     return tensorflow.fill(shape, value)
   elif lib == np:
-    r = np.zeros(shape)
+    r = np.zeros(shape, dtype=as_dtype(value, lib=np))
     r.fill(value)
     return r
   else:
@@ -554,6 +661,25 @@ def fill(shape, value, lib=None):
     r = torch.zeros(shape, dtype=dtype)
     r.fill_(value)
     return r
+
+
+def shaped(value, lib=None):
+  return shapeof(const(value, lib=lib))
+
+
+def rank(value, lib=None):
+  return len(shaped(value, lib=lib))
+
+
+def grid(shape, value=None, lib=None):
+  #lib = as_lib(lib, hint=shape)
+  shape = const(shape, lib=lib)
+  if value is None:
+    value = [0.0, 0.0, 0.0, 0.0]
+  value = fill(shape, [0.0, 0.0, 0.0, 0.0], lib=lib)
+  return value
+
+
 
 def vec4(value, lib=None):
   lib = as_lib(lib, hint=value)
@@ -583,3 +709,11 @@ __dir__ = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(__dir__, "_version.py")) as fp:
   exec(fp.read(), None, _locals)
 __version__ = _locals["__version__"]
+
+
+# mel.cast(mel.swizzled(mel.fill([8,4], [90, 100, 200]), 'bgrF'), 'img').save('check.png')
+
+# pp([[v, hex(int(('%05.2f' % (v/255.0*16)).split('.')[0]))[-1].upper()] for v in range(0,256,5)])
+
+# with open('../media/smile.png', 'rb') as f: smile = r(tf.io.decode_image(f.read()))
+# h = 40; w = 40; mel.cast(r(tf.gather_nd(smile, mel.cast(mtf.wrap(mel.thru(mel.swizzled((mel.stack(mel.meshgrid(mel.linspace(w-0.5, 1.0-0.5, w) / w, mel.linspace(h-0.5, 1.0-0.5, h) / h))), 'vu')) * 4)*10, 'i32'))), 'img').save('check2.png')

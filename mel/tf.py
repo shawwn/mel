@@ -12,6 +12,31 @@ def op_scope(fn, name=None):
             return fn(*args, **kwargs)
     return _fn
 
+# debugging utility: see operation count
+import contextlib
+from pprint import pprint as pp
+
+def ppr(x):
+  pp(x)
+  return x
+
+
+@contextlib.contextmanager
+def see_ops():
+  with tf.Graph().as_default() as g:
+    result = [None]
+    def setter(out):
+      result[0] = out
+      return out
+    yield setter
+    pp(g.get_operations())
+    result = result[0]
+    pp(result)
+    if result is not None:
+      pp(result.shape)
+    return result
+    
+
 
 def pynum(u):
   return isinstance(u, float) or isinstance(u, int)
@@ -26,14 +51,43 @@ def clamp(v, min=0., max=1.):
 
 
 @op_scope
-def wrap(v, wrap_mode="reflect"):
+def mirror(a):
+  # page 260 of glspec46.core.pdf
+  return tf.where(tf.greater_equal(a, 0.0), a, -(1.0+a))
+
+
+# def run(w, h): return mel.cast(r(tf.gather_nd(smile, ppr(r(mel.cast(mtf.wrap(mel.thru(mel.swizzled((mel.stack(mel.meshgrid(mel.linspace(1.0-0.5, w-0.5, w) / w, mel.linspace(1.0-0.5, h-0.5, h) / h))), 'vu')) * 4, 'reflect', size=10), 'i32'))))), 'img').save('check2.png')
+# reload(mel); reload(mtf); run(50, 50)
+
+#def saving(img): img.putpixel([0,0], (255,0,255,255)); return img
+
+#def run(w, h): return saving(mel.cast(r(tf.gather_nd(smile, ppr(r(mel.cast(mtf.wrap((mel.thru(mel.swizzled((mel.stack(mel.meshgrid(mel.linspace(w-0.5, 1.0-0.5, w) / w, mel.linspace(1.0-0.5, h-0.5, h) / h))), 'vu'))*3 - 0.0/10), 'reflect', size=10), 'i32'))))), 'img')).save('check2.png')
+
+@op_scope
+def wrap(v, wrap_mode="wrap", size=None):
   assert wrap_mode in ["clamp", "wrap", "reflect"]
   if wrap_mode == "wrap":
-    return tf.math.floormod(v, 1.0)
+    r = tf.math.floormod(v, 1.0)
+    if size is not None:
+      r *= size
+    return r
   elif wrap_mode == "reflect":
-    return tf.abs(tf.math.floormod(v, 2.0) - 1.0)
+    r = tf.abs(tf.math.floormod(v, 2.0) - 1.0)
+    if size is not None:
+      r *= size
+    return r
+  # elif wrap_mode == "reflect":
+  #   assert size is not None
+  #   size = f32(size)
+  #   r = mirror(tf.math.floormod((size - 1.0) - tf.math.floormod(v*size, 2.0 * size) - size, 2.0 * size) - size)
+  #   #r = mirror((size - 1.0) - tf.math.floormod(v*size-0.5, 2.0 * size) - size)
+  #   #r *= size
+  #   return r
   elif wrap_mode == "clamp":
-    return clamp(v)
+    r = clamp(v)
+    if size is not None:
+      r *= size
+    return r
 
 
 @op_scope
