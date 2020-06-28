@@ -246,7 +246,7 @@ def resize(img, size, method="bilinear", wrap_mode="reflect"): #, preserve_aspec
     return re(sample(img, uv, method=method, wrap_mode=wrap_mode))
 
   assert method == "area"
-  assert "Resize in area mode not yet working"
+  assert not "Resize in area mode not yet working"
   uv_00 = uv
   uv_10 = tf.stack([
     uv_00[:, 0] + 1.0 / size[0],
