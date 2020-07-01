@@ -438,9 +438,8 @@ def tf_fill_text(img, x, y, text, line_height=17, text_spacing=1, fixed_width=Tr
 
 #r(tf_format_text(tf.zeros([32,16], dtype=tf.uint8), 0, 0, "He"))
 
-read_glyph_sizes("/Users/bb/Library/Application Support/minecraft/versions/1.13.2/1.13.2/assets/minecraft")
-
 if __name__ == "__main__":
+  read_glyph_sizes("/Users/bb/Library/Application Support/minecraft/versions/1.13.2/1.13.2/assets/minecraft")
   s = 'Hello there!\n\tThis is a text test.\n噢，這個類別目?似乎是空的。\n請之後?回來查找新內容，而如果您是一?創作者，\n%s。\n'
   lines = s.split('\n')
   for i in range(256):
