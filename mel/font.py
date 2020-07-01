@@ -5,6 +5,8 @@ import numpy as np
 
 from . import common as mop
 
+tf = mop.tensorflow
+
 
 def read_glyph_sizes(path):
   global glyph_width
@@ -352,13 +354,15 @@ def viewport(x, y, width, height):
         [0., 0., 0., 1.]], dtype=np.float32)
 
 
+def init_font(session):
+  font = TensorflowFont(session=session)
+  return font
 
-
-def tf_format_text(img, x, y, text, *args, line_height=17, text_spacing=1, fixed_width=True):
+def tf_format_text(font, img, x, y, text, *args, line_height=17, text_spacing=1, fixed_width=True):
   text = tf.strings.format(text, args)
-  return tf_fill_text(img=img, x=x, y=y, text=text, line_height=line_height, text_spacing=text_spacing, fixed_width=fixed_width)
+  return tf_fill_text(font=font, img=img, x=x, y=y, text=text, line_height=line_height, text_spacing=text_spacing, fixed_width=fixed_width)
 
-def tf_fill_text(img, x, y, text, line_height=17, text_spacing=1, fixed_width=True):
+def tf_fill_text(font, img, x, y, text, line_height=17, text_spacing=1, fixed_width=True):
   P = tf.strings.unicode_decode(text, 'UTF-8')
   num_chars = tf.shape(P)[0]
   img_shape = tf.shape(img)
@@ -366,12 +370,12 @@ def tf_fill_text(img, x, y, text, line_height=17, text_spacing=1, fixed_width=Tr
   img_w = img_shape[1]
   def _fn(i, color, px, py):
     character = tf.gather(P, i)
-    width = tf.gather(tff.widths, character)
+    width = tf.gather(font.widths, character)
     if fixed_width:
       offset = 0
       w = tf.maximum(8, width*2)
     else:
-      offset = tf.gather(tff.offsets, character)
+      offset = tf.gather(font.offsets, character)
       w = width*2
     w += text_spacing
     def _draw():
@@ -414,7 +418,7 @@ def tf_fill_text(img, x, y, text, line_height=17, text_spacing=1, fixed_width=Tr
           u = tri_dot(uvs_i[..., 0], bc)
           v = tri_dot(uvs_i[..., 1], bc)
           uv = tf.stack([u, v], -1)
-          glyph = tf.gather(tff.chars, character)
+          glyph = tf.gather(font.chars, character)
           value = tf.cast(sample(glyph, uv), tf.float32)
           inds = tf.cast(tf.stack([p[..., 1], p[..., 0]], axis=-1), tf.int32)
           c = clamp(tf.tensor_scatter_add(c, inds, value), 0, 255)
@@ -455,14 +459,14 @@ if __name__ == "__main__":
   import tensorflow as tf
   sess = tf.InteractiveSession()
   r = sess.run
-  tff = TensorflowFont(session=sess)
-  mop.cast(r(tf_format_text(tf.ones([16*5,16*10], dtype=tf.uint8)*128, 1, 1, s))[0], 'img').save('foo.png')
-  mop.cast(r(tf_fill_text(tf.ones([1024,512], dtype=tf.uint8)*128, 10, 1, open('README.md').read(), fixed_width=False))[0], 'img').save('bar.png')
-  mop.cast(r(tf_fill_text(tf.ones([1024,512], dtype=tf.uint8)*128, 10, 1, open('README.md').read(), fixed_width=True))[0], 'img').save('baz.png')
+  font = TensorflowFont(session=sess)
+  mop.cast(r(tf_format_text(font, tf.ones([16*5,16*10], dtype=tf.uint8)*128, 1, 1, s))[0], 'img').save('foo.png')
+  mop.cast(r(tf_fill_text(font, tf.ones([1024,512], dtype=tf.uint8)*128, 10, 1, open('README.md').read(), fixed_width=False))[0], 'img').save('bar.png')
+  mop.cast(r(tf_fill_text(font, tf.ones([1024,512], dtype=tf.uint8)*128, 10, 1, open('README.md').read(), fixed_width=True))[0], 'img').save('baz.png')
   # S = s.split('\n')[1]
   # P = tf.strings.unicode_decode(tf.constant(S, dtype=tf.string), 'UTF-8')
-  # C = tf.gather(tff.chars, P)
-  # W = tf.gather(tff.widths, P)
+  # C = tf.gather(font.chars, P)
+  # W = tf.gather(font.widths, P)
   # Z = tf.zeros_like(W)
   # X = tf.cumsum(W*2, -1) - W
   # strides = r((tf.ragged.range(X-W, X+W) - tf.reshape(X-W, [-1, 1])).to_tensor())
