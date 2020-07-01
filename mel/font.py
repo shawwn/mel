@@ -3,7 +3,7 @@ import unicodedata
 import os
 import numpy as np
 
-import mel.common as mop
+from . import common as mop
 
 
 def read_glyph_sizes(path):
