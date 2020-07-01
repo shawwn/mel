@@ -425,7 +425,10 @@ dtype_specs = {
     tensorflow.bfloat16: 'b16',
     tensorflow.complex64: 'f128',
     tensorflow.bool: 'y',
+}
 
+if torch:
+  dtype_specs.update({
     torch.int64: 'i64',
     torch.int32: 'i32',
     torch.int16: 'i16',
@@ -438,7 +441,7 @@ dtype_specs = {
     torch.float32: 'f32',
     torch.complex64: 'f128',
     torch.bool: 'y',
-}
+  })
 
 
 dtype_specs.update({x: x for x in list(set(dtype_remap.values()))})
