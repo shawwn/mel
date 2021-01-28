@@ -72,7 +72,8 @@ def wrap(v, wrap_mode="wrap", size=None):
       r *= size
     return r
   elif wrap_mode == "reflect":
-    r = tf.abs(tf.math.floormod(v, 2.0) - 1.0)
+    #r = tf.abs(tf.math.floormod(v, 2.0) - 1.0)
+    r = tf.abs(tf.math.floormod(1.0 - v, 2.0) - 1.0)
     if size is not None:
       r *= size
     return r
@@ -288,9 +289,9 @@ if __name__ == "__main__":
   with open(args[0], 'rb') as f:
     img = sess.run(tf.io.decode_image(f.read(), channels=3))
   outfile = args[1]
-  w = 128 if len(args) <= 2 else int(args[2])
-  h = 128 if len(args) <= 3 else int(args[3])
-  method = "area" if len(args) <= 4 else args[4]
+  w = 256 if len(args) <= 2 else int(args[2])
+  h = 256 if len(args) <= 3 else int(args[3])
+  method = "bilinear" if len(args) <= 4 else args[4]
   wrap_mode = "reflect" if len(args) <= 5 else args[5]
   img2 = sess.run(resize(img, [w, h], method=method, wrap_mode=wrap_mode))
   with open(args[1], 'wb') as f:
